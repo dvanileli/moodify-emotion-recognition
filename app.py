@@ -8,6 +8,13 @@ import cv2
 from PIL import Image
 from datetime import datetime
 
+from streamlit_webrtc import (
+    webrtc_streamer,
+    VideoProcessorBase
+)
+
+import av
+
 # =====================
 # CONFIG
 # =====================
@@ -359,6 +366,83 @@ score_map = {
     "Disgust":10
 }
 
+class EmotionProcessor(VideoProcessorBase):
+
+    def recv(self, frame):
+
+        img = frame.to_ndarray(format="bgr24")
+
+        gray = cv2.cvtColor(
+            img,
+            cv2.COLOR_BGR2GRAY
+        )
+
+        faces = face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.2,
+            minNeighbors=5
+        )
+
+        for (x,y,w,h) in faces:
+
+            face = img[y:y+h, x:x+w]
+
+            try:
+
+                face_input = cv2.resize(
+                    face,
+                    (IMG_SIZE, IMG_SIZE)
+                )
+
+                face_input = (
+                    face_input.astype(np.float32)
+                    / 255.0
+                )
+
+                face_input = np.expand_dims(
+                    face_input,
+                    axis=0
+                )
+
+                prediction = model.predict(
+                    face_input,
+                    verbose=0
+                )
+
+                emotion = emotion_labels[
+                    np.argmax(prediction)
+                ]
+
+                confidence = np.max(
+                    prediction
+                )
+
+                cv2.rectangle(
+                    img,
+                    (x,y),
+                    (x+w,y+h),
+                    (0,255,0),
+                    2
+                )
+
+                cv2.putText(
+                    img,
+                    f"{emotion} {confidence:.0%}",
+                    (x,y-10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0,255,0),
+                    2
+                )
+
+            except:
+                pass
+
+        return av.VideoFrame.from_ndarray(
+            img,
+            format="bgr24"
+        )
+        
 # =====================
 # NAVIGATION
 # =====================
@@ -480,13 +564,17 @@ elif st.session_state.page == "Scan":
         unsafe_allow_html=True
     )
 
-    use_camera = st.toggle(
-        "Aktifkan Kamera"
-    )
-
     image = None
 
-    if use_camera:
+    # =====================
+    # KAMERA FOTO
+    # =====================
+
+    use_photo_camera = st.toggle(
+        "📸 Aktifkan Kamera Foto"
+    )
+
+    if use_photo_camera:
 
         camera = st.camera_input(
             "Ambil Foto"
@@ -495,10 +583,32 @@ elif st.session_state.page == "Scan":
         if camera:
             image = Image.open(camera)
 
-    else:
+    # =====================
+    # KAMERA REALTIME
+    # =====================
 
-        if uploaded_file:
-            image = Image.open(uploaded_file)
+    use_realtime = st.toggle(
+        "🎥 Aktifkan Kamera Real-Time"
+    )
+
+    if use_realtime:
+
+        webrtc_streamer(
+            key="emotion-realtime",
+            video_processor_factory=
+            EmotionProcessor,
+            media_stream_constraints={
+                "video": True,
+                "audio": False
+            }
+        )
+
+    # =====================
+    # UPLOAD FOTO
+    # =====================
+
+    if uploaded_file:
+        image = Image.open(uploaded_file)
 
     st.write("")
 
